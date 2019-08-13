@@ -22,7 +22,7 @@ class Nssq < DiceBot
   
   def prefixs
     #ダイスボットで使用するコマンドを配列で列挙すること。
-    ['\d+SQ([\+\-\d]*)','\d+DR(C)?(\+)?\d+','(T|S|G)C.*']
+    ['\d+SQ([\+\-\d]*)','\d+DR(C)?(\+)?\d+','(T|S|G)C.*','\d+HR\d*']
   end
   
   def gameName
@@ -36,13 +36,18 @@ class Nssq < DiceBot
   def getHelpMessage
     return <<MESSAGETEXT
 ・判定(xSQ±y)
-  xD6の判定。3つ以上振ったとき、出目の高い2つを表示します。
-  ±y: yに追加で振るダイス数を入力。±の計算に対応。省略可能。
+  xD6の判定。3つ以上振ったとき、出目の高い2つを表示します。クリティカル、ファンブルも計算します。
+  ±y: yに修正値を入力。±の計算に対応。省略可能。
 ・ダメージロール(xDR(C)(+)y)
   xD6のダメージロール。クリティカルの自動判定を行います。Cを付けるとクリティカルアップ状態で計算できます。+を付けるとクリティカル時のダイスが8個になります
   x: xに振るダイス数を入力。
   y: yに耐性を入力。
   例) 5DR3 5DRC4 5DRC+4
+・回復ロール(xHR±y)
+　xD6の回復ロール。クリティカルが発生しません。
+  ±y: yに修正値を入力。±の計算に対応。省略可能。
+　x: xに振るダイス数を入力。
+　例) 2HR 10HR
 ・採取ロール(TC±z,SC±z,GC±z)
   ちょっと(T)、そこそこ(S)、がっつり(G)採取採掘伐採を行う。
   z: zに追加でロールする回数を入力。省略可能。
@@ -76,21 +81,46 @@ MESSAGETEXT
     return nil unless(/(\d)SQ([\+\-\d]*)/i === command)
 
     diceCount = $1.to_i
-    modify = ($2 || 0).to_i
+    modifyText = ($2 || '')
+    modify = getValue(modifyText,0)
+    crifanText = ''
 
-    _dice, dice_str, = roll(diceCount + modify, 6)
+    #ダイスロールして、結果を降順にソート
+    dice, dice_str, = roll(diceCount, 6)
     diceList = dice_str.split(/,/).collect{|i|i.to_i}.sort {|a, b|b <=> a}
+
+    #長さが2以上の場合先頭の2つを切り出し、合計値を算出
     if(diceList.size >= 2)
-      diceList.slice!(2..3)
+      diceList = diceList.slice(0, 2)
+      dice = diceList[0] + diceList[1]
     end
 
+    #クリティカル、ファンブルを判定
+    if(diceList[0] == diceList[1])
+      if(diceList[0] == 6)
+        crifanText = " クリティカル！"
+      end
+      if(diceList[0] == 1)
+        crifanText = " ファンブル！"
+      end
+    end
+
+    #修正値を加算
+    dice += modify
+
     #出力用文の生成
-    result = "(#{command}) ＞ [#{dice_str}] ＞ [#{diceList.join(",")}]"
+    result = "(#{command}) ＞ [#{dice_str}]#{modifyText} ＞ #{dice}[#{diceList.join(",")}]" + crifanText
 
     return result
 
   end
-  
+
+  def getValue(text,defaultValue)
+    return defaultValue if(text == nil or text.empty?)
+
+    parren_killer("(0" + text + ")").to_i
+  end
+
   def getDamegeRollDiceCommandResult(command)
 
     #ダメージロール
@@ -126,12 +156,31 @@ MESSAGETEXT
 
   end
 
+  def getHealRollDiceCommandResult(command)
+
+    #回復ロール
+    return nil unless(/(\d+)HR(\d*)/i === command)
+
+    diceCount = $1.to_i
+    resist = $2.to_i
+
+    #ダイスロール
+    _dice, dice_str, = roll(diceCount, 6)
+    diceList = dice_str.split(/,/).collect{|i|i.to_i}.sort
+
+    #出力文の生成
+    result = "(#{command}) ＞ [#{dice_str}]#{resist} ＞ " + damageCheck(diceList, resist).to_s + "回復"
+
+    return result
+
+  end
+
   def makeCommand(diceCount, diceList, dice_str, criticalText, plusText, resist)
     #出力用ダイスコマンドを生成
     command = "#{diceCount}DR" + criticalText + plusText + "#{resist}"
 
     #出力文の生成
-    result = "(#{command}) ＞ [#{dice_str}] ＞ "
+    result = "(#{command}) ＞ [#{dice_str}]#{resist} ＞ "
 
     damage = damageCheck(diceList, resist)
 
