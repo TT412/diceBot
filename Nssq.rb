@@ -162,7 +162,7 @@ MESSAGETEXT
     return nil unless(/(\d+)HR(\d*)/i === command)
 
     diceCount = $1.to_i
-    resist = $2.to_i
+    resist = ($2.to_i || 3).to_i
 
     #ダイスロール
     _dice, dice_str, = roll(diceCount, 6)
